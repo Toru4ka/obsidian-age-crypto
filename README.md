@@ -161,4 +161,4 @@ Set **Identity key path** in settings.
 
 ## License
 
-MIT (or choose your preferred license).
+MIT
