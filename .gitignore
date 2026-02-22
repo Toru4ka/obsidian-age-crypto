@@ -1,0 +1,48 @@
+# Node / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Bundled output
+main.js
+main.js.map
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Obsidian / vault
+.obsidian/
+**/.obsidian/
+vault/
+Vault/
+Obsidian-Vault/
+Obsidian Vault/
+
+# Env / secrets
+.env
+.env.*
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.age
+*.enc
+
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml

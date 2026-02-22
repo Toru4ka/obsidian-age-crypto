@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-age-crypto",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs dev",
+    "build": "node esbuild.config.mjs build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.6.5",
+    "tslib": "^2.7.0",
+    "typescript": "^5.7.2"
+  }
+}
