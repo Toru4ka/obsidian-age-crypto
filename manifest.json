@@ -1,7 +1,7 @@
 {
   "id": "age-crypto",
   "name": "AGE Crypto",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minAppVersion": "1.5.0",
   "description": "Encrypt/decrypt notes with age.",
   "author": "Toru4ka",

@@ -136,12 +136,12 @@ To publish a new release for Obsidian, update `version` in `manifest.json`,
 `package.json`, and `versions.json`, then push a matching semver tag:
 
 ```bash
-git tag 0.1.1
-git push origin 0.1.1
+git tag 0.1.2
+git push origin 0.1.2
 ```
 
 The GitHub Actions release workflow builds the plugin and uploads the files
-Obsidian expects:
+Obsidian expects with GitHub artifact attestations:
 
 - `main.js`
 - `manifest.json`

@@ -37,6 +37,10 @@ function formatGeneratedIdentity(identity: string, recipient: string): string {
   return [`# public key: ${recipient}`, identity].join("\n");
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export default class AgeCryptoPlugin extends Plugin {
   settings!: AgeCryptoSettings;
 
@@ -91,8 +95,8 @@ export default class AgeCryptoPlugin extends Plugin {
           this.settings.recipient = recipient;
           await this.saveSettings();
           new Notice(`Recipient set: ${recipient}`);
-        } catch (e: any) {
-          new Notice(`Derive recipient failed: ${e?.message ?? e}`);
+        } catch (error: unknown) {
+          new Notice(`Derive recipient failed: ${getErrorMessage(error)}`);
         }
       },
     });
@@ -113,8 +117,8 @@ export default class AgeCryptoPlugin extends Plugin {
           await this.saveSettings();
 
           new Notice("Generated identity key and recipient.");
-        } catch (e: any) {
-          new Notice(`Generate identity failed: ${e?.message ?? e}`);
+        } catch (error: unknown) {
+          new Notice(`Generate identity failed: ${getErrorMessage(error)}`);
         }
       },
     });
@@ -204,8 +208,8 @@ export default class AgeCryptoPlugin extends Plugin {
       else editor.setValue(out);
 
       new Notice("Encrypted.");
-    } catch (e: any) {
-      new Notice(`Encrypt failed: ${e?.message ?? e}`);
+    } catch (error: unknown) {
+      new Notice(`Encrypt failed: ${getErrorMessage(error)}`);
     }
   }
 
@@ -233,8 +237,8 @@ export default class AgeCryptoPlugin extends Plugin {
       else editor.setValue(out);
 
       new Notice("Decrypted.");
-    } catch (e: any) {
-      new Notice(`Decrypt failed: ${e?.message ?? e}`);
+    } catch (error: unknown) {
+      new Notice(`Decrypt failed: ${getErrorMessage(error)}`);
     }
   }
 
@@ -291,8 +295,8 @@ class AgeCryptoSettingTab extends PluginSettingTab {
             this.display();
 
             new Notice("Generated identity key and recipient.");
-          } catch (e: any) {
-            new Notice(`Generate identity failed: ${e?.message ?? e}`);
+          } catch (error: unknown) {
+            new Notice(`Generate identity failed: ${getErrorMessage(error)}`);
           }
         }),
       );
@@ -319,8 +323,8 @@ class AgeCryptoSettingTab extends PluginSettingTab {
             this.display();
 
             new Notice("Recipient derived from identity key.");
-          } catch (e: any) {
-            new Notice(`Derive recipient failed: ${e?.message ?? e}`);
+          } catch (error: unknown) {
+            new Notice(`Derive recipient failed: ${getErrorMessage(error)}`);
           }
         }),
       );
