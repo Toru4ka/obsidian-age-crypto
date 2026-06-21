@@ -1,53 +1,51 @@
 # AGE Crypto (Obsidian plugin)
 
-Minimal Obsidian plugin that encrypts/decrypts note content using the **age** CLI (`age` / `age-keygen`).
+Obsidian plugin that encrypts and decrypts note content using the age file
+encryption format.
 
-> Desktop only. The plugin calls external binaries from your OS.
+This version uses a bundled TypeScript implementation of age instead of calling
+external `age` / `age-keygen` binaries, so it can run on Obsidian Desktop and
+Mobile.
 
 ---
 
 ## Features
 
-- Encrypt / decrypt **entire note**
-- Encrypt / decrypt **selected text**
-- Store settings:
-  - path to `age` binary
-  - path to `age-keygen` binary (optional, for deriving recipient)
-  - path to **identity** key file (private key)
-  - **recipient** public key (`age1...`)
-  - ASCII armor output (`-----BEGIN AGE ENCRYPTED FILE-----`)
+- Encrypt / decrypt the entire current note
+- Encrypt / decrypt selected text
+- Generate a new age identity key
+- Derive a recipient public key from an identity key
+- Store encrypted content as ASCII-armored text blocks:
+  `-----BEGIN AGE ENCRYPTED FILE-----`
 
 ---
 
-## Requirements
+## Platforms
 
-- Obsidian Desktop
-- `age` installed and available in PATH (or specify full path)
-- Optional: `age-keygen` (usually installed together with `age`)
+Supported by design:
 
-### Install age (macOS)
-```bash
-brew install age
-```
+- iOS
+- Android
+- macOS
+- Windows
+- Linux
 
-Check:
-```bash
-which age
-which age-keygen
-```
+No external CLI tools are required.
 
 ---
 
 ## Installation (manual)
 
 1. Build the plugin:
+
 ```bash
 npm i
 npm run build
 ```
 
 2. Copy files to your vault:
-```
+
+```text
 <Vault>/.obsidian/plugins/age-crypto/
   manifest.json
   main.js
@@ -55,107 +53,80 @@ npm run build
 ```
 
 3. Enable it in Obsidian:
-- Settings → Community plugins → enable **AGE Crypto**
+
+- Settings -> Community plugins -> enable AGE Crypto
 
 ---
 
 ## Configuration
 
-Obsidian → Settings → Community plugins → **AGE Crypto**:
+Obsidian -> Settings -> Community plugins -> AGE Crypto:
 
-- **age binary path**  
-  Example: `/opt/homebrew/bin/age` (macOS Homebrew) or just `age`
+- Identity key
+  - Paste an existing `AGE-SECRET-KEY-...` value, or click Generate.
+  - Identity files with comments are accepted; the plugin reads
+    `AGE-SECRET-KEY-...` lines.
+- Recipient
+  - Public recipient string beginning with `age1...`.
+  - Click Derive to fill it from the identity key.
 
-- **age-keygen binary path**  
-  Example: `/opt/homebrew/bin/age-keygen` or `age-keygen`
+The generated identity field looks like this:
 
-- **Identity key path**  
-  Path to your private identity key file (example):  
-  `/Users/<you>/.config/age/key.txt`
-
-- **Recipient**  
-  Your public recipient string (must start with `age1...`)  
-  Example: `age1tguvx...`
-
-- **ASCII armor**  
-  Keep enabled to store encrypted text as readable armored block.
-
-### How to get recipient (`age1...`)
-If you already have a private identity key:
-```bash
-age-keygen -y -i /path/to/key.txt
+```text
+# public key: age1...
+AGE-SECRET-KEY-1...
 ```
-
-Or if you have `key.pub`, just copy its content (usually it is the `age1...` string).
 
 ---
 
 ## Usage
 
 Open Command Palette:
-- macOS: `Cmd + P`
-- Windows/Linux: `Ctrl + P`
+
+- macOS / iOS: `Cmd + P`
+- Windows / Linux / Android: `Ctrl + P`
 
 Available commands:
 
-### Encrypt / decrypt whole note
-- **AGE: Encrypt current note**
-- **AGE: Decrypt current note**
-
-### Encrypt / decrypt selection
-- **AGE: Encrypt selection**
-- **AGE: Decrypt selection**
-
-### Derive recipient from identity
-- **AGE: Derive recipient from identity key**  
-  Runs:
-  ```bash
-  age-keygen -y -i <identityKeyPath>
-  ```
-  and stores result in settings.
-
----
-
-## Notes on storage (important)
-
-- The plugin **replaces the text in the editor**.
-- After **Decrypt**, your note contains **plaintext** until you encrypt it again.
-- Encrypted output will be different every time (normal for age).
-
-### Recommended pattern
-Do **not** store encrypted blocks inside Markdown tables.  
-Obsidian may convert newlines to `<br>` in tables which can break encryption blocks.
-
-Best practice:
-- Keep secrets in separate blocks (outside tables)
-- Tables can hold metadata/links, while secrets live below as encrypted blocks
-
----
-
-## Troubleshooting
-
-### “Recipient is not set”
-Encryption requires a recipient public key (`age1...`).  
-Set **Recipient** in settings or run **Derive recipient**.
-
-### “Identity key path is not set”
-Decryption requires the private identity key path.  
-Set **Identity key path** in settings.
-
-### Nothing happens / no changes
-- Ensure you are in an editable mode (Live Preview / Source) and have selection if using selection commands.
-- Verify `ageBinaryPath` is correct and executable:
-  ```bash
-  /opt/homebrew/bin/age --version
-  ```
+- AGE: Encrypt current note
+- AGE: Decrypt current note
+- AGE: Encrypt selection
+- AGE: Decrypt selection
+- AGE: Derive recipient from identity key
+- AGE: Generate new identity key
 
 ---
 
 ## Security
 
+- The identity key is private. Anyone with this key can decrypt your encrypted
+  notes.
+- The plugin stores settings in Obsidian plugin data so it can work on mobile.
+  Protect your device, vault, and sync provider accordingly.
 - Do not commit private keys.
-- Do not store identity keys inside the vault.
 - Treat any accidentally shared private key as compromised and rotate it.
+- After decrypting, the editor contains plaintext until you encrypt it again.
+
+---
+
+## Notes
+
+- Encrypted output changes every time. This is normal for age.
+- Do not store encrypted blocks inside Markdown tables. Obsidian may convert
+  newlines to `<br>`, which can break encrypted blocks.
+- Best practice: keep encrypted secrets in separate blocks outside tables.
+
+---
+
+## Development
+
+```bash
+npm run check
+npm run build
+```
+
+The plugin is marked with `"isDesktopOnly": false` and should not import Node or
+Electron APIs.
 
 ---
 

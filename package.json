@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node esbuild.config.mjs dev",
-    "build": "node esbuild.config.mjs build"
+    "build": "node esbuild.config.mjs build",
+    "check": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -12,5 +13,8 @@
     "obsidian": "^1.6.5",
     "tslib": "^2.7.0",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "age-encryption": "^0.3.0"
   }
 }

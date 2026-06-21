@@ -7,24 +7,16 @@ import {
   Editor,
 } from "obsidian";
 
-import { spawn } from "child_process";
-
-type ExecResult = { stdout: string; stderr: string };
+import * as age from "age-encryption";
 
 interface AgeCryptoSettings {
-  ageBinaryPath: string; // "age" if in PATH, else full path
-  ageKeygenBinaryPath: string; // "age-keygen" if in PATH, else full path
-  identityKeyPath: string; // path to keys.txt
+  identityKey: string; // AGE-SECRET-KEY-...
   recipient: string; // age1...
-  armor: boolean; // produce ASCII armored output
 }
 
 const DEFAULT_SETTINGS: AgeCryptoSettings = {
-  ageBinaryPath: "age",
-  ageKeygenBinaryPath: "age-keygen",
-  identityKeyPath: "",
   recipient: "",
-  armor: true,
+  identityKey: "",
 };
 
 function isAgeArmoredBlock(text: string): boolean {
@@ -34,8 +26,19 @@ function isAgeArmoredBlock(text: string): boolean {
   );
 }
 
+function parseIdentityKeys(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("AGE-SECRET-KEY-"));
+}
+
+function formatGeneratedIdentity(identity: string, recipient: string): string {
+  return [`# public key: ${recipient}`, identity].join("\n");
+}
+
 export default class AgeCryptoPlugin extends Plugin {
-  settings: AgeCryptoSettings;
+  settings!: AgeCryptoSettings;
 
   async onload() {
     await this.loadSettings();
@@ -93,13 +96,37 @@ export default class AgeCryptoPlugin extends Plugin {
         }
       },
     });
+
+    this.addCommand({
+      id: "age-generate-identity",
+      name: "AGE: Generate new identity key",
+      callback: async () => {
+        try {
+          const identity = await age.generateIdentity();
+          const recipient = await age.identityToRecipient(identity);
+
+          this.settings.identityKey = formatGeneratedIdentity(
+            identity,
+            recipient,
+          );
+          this.settings.recipient = recipient;
+          await this.saveSettings();
+
+          new Notice("Generated identity key and recipient.");
+        } catch (e: any) {
+          new Notice(`Generate identity failed: ${e?.message ?? e}`);
+        }
+      },
+    });
   }
 
   onunload() {}
 
-  private ensureIdentityConfigured() {
-    if (!this.settings.identityKeyPath.trim()) {
-      throw new Error("Identity key path is not set (Settings → AGE Crypto).");
+  ensureIdentityConfigured() {
+    if (parseIdentityKeys(this.settings.identityKey).length === 0) {
+      throw new Error(
+        "Identity key is not set (Settings -> AGE Crypto). Paste an AGE-SECRET-KEY-... value or generate a new identity.",
+      );
     }
   }
 
@@ -110,7 +137,7 @@ export default class AgeCryptoPlugin extends Plugin {
         "Recipient is not set. Set it in Settings or run: AGE: Derive recipient from identity key.",
       );
     }
-    // минимальная валидация
+    // Minimal validation before handing the value to age-encryption.
     if (!r.startsWith("age1")) {
       throw new Error(
         "Recipient must be an 'age1...' string (not a file path).",
@@ -118,72 +145,34 @@ export default class AgeCryptoPlugin extends Plugin {
     }
   }
 
-  private runProcess(
-    bin: string,
-    args: string[],
-    input?: string,
-  ): Promise<ExecResult> {
-    return new Promise((resolve, reject) => {
-      const p = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
-
-      let stdout = "";
-      let stderr = "";
-
-      p.stdout.setEncoding("utf8");
-      p.stderr.setEncoding("utf8");
-
-      p.stdout.on("data", (d) => (stdout += d));
-      p.stderr.on("data", (d) => (stderr += d));
-
-      p.on("error", (err) => reject(err));
-      p.on("close", (code) => {
-        if (code === 0) return resolve({ stdout, stderr });
-        reject(
-          new Error(stderr.trim() || `Command failed with exit code ${code}`),
-        );
-      });
-
-      if (input !== undefined) {
-        p.stdin.write(input);
-      }
-      p.stdin.end();
-    });
-  }
-
-  private async runAge(args: string[], input: string): Promise<ExecResult> {
-    return await this.runProcess(this.settings.ageBinaryPath, args, input);
-  }
-
-  private async runAgeKeygen(args: string[]): Promise<ExecResult> {
-    return await this.runProcess(this.settings.ageKeygenBinaryPath, args);
-  }
-
   private async encryptText(plain: string): Promise<string> {
     this.ensureRecipientConfigured();
-    const args: string[] = [];
-    if (this.settings.armor) args.push("-a");
-    args.push("-r", this.settings.recipient.trim());
 
-    const { stdout } = await this.runAge(args, plain);
-    return stdout;
+    const encrypter = new age.Encrypter();
+    encrypter.addRecipient(this.settings.recipient.trim());
+
+    const ciphertext = await encrypter.encrypt(plain);
+    return age.armor.encode(ciphertext);
   }
 
   private async decryptText(cipher: string): Promise<string> {
     this.ensureIdentityConfigured();
-    const args = ["-d", "-i", this.settings.identityKeyPath.trim()];
 
-    const { stdout } = await this.runAge(args, cipher);
-    return stdout;
+    const decrypter = new age.Decrypter();
+    for (const identity of parseIdentityKeys(this.settings.identityKey)) {
+      decrypter.addIdentity(identity);
+    }
+
+    return await decrypter.decrypt(age.armor.decode(cipher), "text");
   }
 
-  private async deriveRecipientFromIdentity(): Promise<string> {
-    // age-keygen -y -i keys.txt
-    const { stdout } = await this.runAgeKeygen([
-      "-y",
-      "-i",
-      this.settings.identityKeyPath.trim(),
-    ]);
-    const rec = stdout.trim();
+  async deriveRecipientFromIdentity(): Promise<string> {
+    const identity = parseIdentityKeys(this.settings.identityKey)[0];
+    if (!identity) {
+      throw new Error("Identity key is not set.");
+    }
+
+    const rec = await age.identityToRecipient(identity);
 
     if (!rec.startsWith("age1")) {
       throw new Error(`Unexpected recipient output: ${rec}`);
@@ -250,7 +239,8 @@ export default class AgeCryptoPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = (await this.loadData()) as Partial<AgeCryptoSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
   }
 
   async saveSettings() {
@@ -271,44 +261,40 @@ class AgeCryptoSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("age binary path")
-      .setDesc("Path to age/rage binary (or 'age' if it's in PATH).")
-      .addText((t) =>
-        t
-          .setPlaceholder("age")
-          .setValue(this.plugin.settings.ageBinaryPath)
-          .onChange(async (v) => {
-            this.plugin.settings.ageBinaryPath = v.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("age-keygen binary path")
+      .setName("Identity key")
       .setDesc(
-        "Path to age-keygen (or 'age-keygen' if it's in PATH). Used to derive recipient.",
+        "Paste an age identity key (AGE-SECRET-KEY-...) or generate a new one. This private key is stored in Obsidian plugin data.",
       )
-      .addText((t) =>
+      .addTextArea((t) => {
+        t.inputEl.rows = 6;
+        t.inputEl.cols = 32;
         t
-          .setPlaceholder("age-keygen")
-          .setValue(this.plugin.settings.ageKeygenBinaryPath)
+          .setPlaceholder("AGE-SECRET-KEY-1...")
+          .setValue(this.plugin.settings.identityKey)
           .onChange(async (v) => {
-            this.plugin.settings.ageKeygenBinaryPath = v.trim();
+            this.plugin.settings.identityKey = v.trim();
             await this.plugin.saveSettings();
-          }),
-      );
+          });
+      })
+      .addButton((btn) =>
+        btn.setButtonText("Generate").onClick(async () => {
+          try {
+            const identity = await age.generateIdentity();
+            const recipient = await age.identityToRecipient(identity);
 
-    new Setting(containerEl)
-      .setName("Identity key path")
-      .setDesc("Path to identity key file (keys.txt).")
-      .addText((t) =>
-        t
-          .setPlaceholder("/Users/you/.config/age/keys.txt")
-          .setValue(this.plugin.settings.identityKeyPath)
-          .onChange(async (v) => {
-            this.plugin.settings.identityKeyPath = v.trim();
+            this.plugin.settings.identityKey = formatGeneratedIdentity(
+              identity,
+              recipient,
+            );
+            this.plugin.settings.recipient = recipient;
             await this.plugin.saveSettings();
-          }),
+            this.display();
+
+            new Notice("Generated identity key and recipient.");
+          } catch (e: any) {
+            new Notice(`Generate identity failed: ${e?.message ?? e}`);
+          }
+        }),
       );
 
     new Setting(containerEl)
@@ -322,17 +308,20 @@ class AgeCryptoSettingTab extends PluginSettingTab {
             this.plugin.settings.recipient = v.trim();
             await this.plugin.saveSettings();
           }),
-      );
-
-    new Setting(containerEl)
-      .setName("ASCII armor")
-      .setDesc(
-        "Output encrypted text as armored block (BEGIN/END). Recommended for notes.",
       )
-      .addToggle((tg) =>
-        tg.setValue(this.plugin.settings.armor).onChange(async (v) => {
-          this.plugin.settings.armor = v;
-          await this.plugin.saveSettings();
+      .addButton((btn) =>
+        btn.setButtonText("Derive").onClick(async () => {
+          try {
+            this.plugin.ensureIdentityConfigured();
+            this.plugin.settings.recipient =
+              await this.plugin.deriveRecipientFromIdentity();
+            await this.plugin.saveSettings();
+            this.display();
+
+            new Notice("Recipient derived from identity key.");
+          } catch (e: any) {
+            new Notice(`Derive recipient failed: ${e?.message ?? e}`);
+          }
         }),
       );
   }
