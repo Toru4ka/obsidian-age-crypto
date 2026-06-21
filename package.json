@@ -1,7 +1,8 @@
 {
   "name": "obsidian-age-crypto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "node esbuild.config.mjs dev",
     "build": "node esbuild.config.mjs build",

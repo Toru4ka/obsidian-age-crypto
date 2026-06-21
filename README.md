@@ -136,8 +136,8 @@ To publish a new release for Obsidian, update `version` in `manifest.json`,
 `package.json`, and `versions.json`, then push a matching semver tag:
 
 ```bash
-git tag 0.1.0
-git push origin 0.1.0
+git tag 0.1.1
+git push origin 0.1.1
 ```
 
 The GitHub Actions release workflow builds the plugin and uploads the files
@@ -151,4 +151,12 @@ Obsidian expects:
 
 ## License
 
-MIT
+Copyright (c) 2026 Toru4ka.
+
+This project is licensed under the GNU General Public License v3.0 or later
+(`GPL-3.0-or-later`). Modified versions and forks must remain under the same
+license when distributed.
+
+The AGE Crypto name and project branding are not licensed for modified
+redistributions. If you publish a modified fork, use a different plugin name and
+plugin id.
