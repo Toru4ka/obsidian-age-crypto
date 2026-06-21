@@ -130,6 +130,25 @@ Electron APIs.
 
 ---
 
+## Release
+
+To publish a new release for Obsidian, update `version` in `manifest.json`,
+`package.json`, and `versions.json`, then push a matching semver tag:
+
+```bash
+git tag 0.1.0
+git push origin 0.1.0
+```
+
+The GitHub Actions release workflow builds the plugin and uploads the files
+Obsidian expects:
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+---
+
 ## License
 
 MIT
