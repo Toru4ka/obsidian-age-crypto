@@ -10,13 +10,11 @@ import {
 import * as age from "age-encryption";
 
 interface AgeCryptoSettings {
-  identityKey: string; // AGE-SECRET-KEY-...
-  recipient: string; // age1...
+  recipients: string; // age1... values, one per line
 }
 
 const DEFAULT_SETTINGS: AgeCryptoSettings = {
-  recipient: "",
-  identityKey: "",
+  recipients: "",
 };
 
 function isAgeArmoredBlock(text: string): boolean {
@@ -33,8 +31,46 @@ function parseIdentityKeys(text: string): string[] {
     .filter((line) => line.startsWith("AGE-SECRET-KEY-"));
 }
 
+function parseRecipients(text: string): string[] {
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+
+  for (const line of text.split(/\r?\n/)) {
+    const recipient = line.trim();
+    if (!recipient || recipient.startsWith("#") || seen.has(recipient)) {
+      continue;
+    }
+
+    recipients.push(recipient);
+    seen.add(recipient);
+  }
+
+  return recipients;
+}
+
+function formatRecipients(recipients: string[]): string {
+  return recipients.join("\n");
+}
+
 function formatGeneratedIdentity(identity: string, recipient: string): string {
   return [`# public key: ${recipient}`, identity].join("\n");
+}
+
+function appendGeneratedIdentity(
+  currentIdentityKey: string,
+  identity: string,
+  recipient: string,
+): string {
+  if (parseIdentityKeys(currentIdentityKey).includes(identity)) {
+    return currentIdentityKey.trim();
+  }
+
+  return [
+    currentIdentityKey.trim(),
+    formatGeneratedIdentity(identity, recipient),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function getErrorMessage(error: unknown): string {
@@ -43,6 +79,36 @@ function getErrorMessage(error: unknown): string {
 
 export default class AgeCryptoPlugin extends Plugin {
   settings!: AgeCryptoSettings;
+
+  private getLocalIdentityStorageKey(): string {
+    return `${this.manifest.id}:${this.app.vault.getName()}:identityKey`;
+  }
+
+  getIdentityKey(): string {
+    return window.localStorage.getItem(this.getLocalIdentityStorageKey()) ?? "";
+  }
+
+  setIdentityKey(identityKey: string) {
+    const key = this.getLocalIdentityStorageKey();
+    const value = identityKey.trim();
+
+    if (value) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  addRecipient(recipient: string): boolean {
+    const recipients = parseRecipients(this.settings.recipients);
+    if (recipients.includes(recipient)) {
+      return false;
+    }
+
+    recipients.push(recipient);
+    this.settings.recipients = formatRecipients(recipients);
+    return true;
+  }
 
   async onload() {
     await this.loadSettings();
@@ -84,39 +150,40 @@ export default class AgeCryptoPlugin extends Plugin {
       },
     });
 
-    // Derive recipient from identity
+    // Add the current local identity's public recipient to the shared list.
     this.addCommand({
       id: "age-derive-recipient",
-      name: "AGE: Derive recipient from identity key",
+      name: "AGE: Add current identity recipient",
       callback: async () => {
         try {
           this.ensureIdentityConfigured();
           const recipient = await this.deriveRecipientFromIdentity();
-          this.settings.recipient = recipient;
+          const added = this.addRecipient(recipient);
           await this.saveSettings();
-          new Notice(`Recipient set: ${recipient}`);
+          new Notice(
+            added ? `Recipient added: ${recipient}` : "Recipient already exists.",
+          );
         } catch (error: unknown) {
-          new Notice(`Derive recipient failed: ${getErrorMessage(error)}`);
+          new Notice(`Add recipient failed: ${getErrorMessage(error)}`);
         }
       },
     });
 
     this.addCommand({
       id: "age-generate-identity",
-      name: "AGE: Generate new identity key",
+      name: "AGE: Generate new local identity key",
       callback: async () => {
         try {
           const identity = await age.generateIdentity();
           const recipient = await age.identityToRecipient(identity);
 
-          this.settings.identityKey = formatGeneratedIdentity(
-            identity,
-            recipient,
+          this.setIdentityKey(
+            appendGeneratedIdentity(this.getIdentityKey(), identity, recipient),
           );
-          this.settings.recipient = recipient;
+          this.addRecipient(recipient);
           await this.saveSettings();
 
-          new Notice("Generated identity key and recipient.");
+          new Notice("Generated local identity key and added its recipient.");
         } catch (error: unknown) {
           new Notice(`Generate identity failed: ${getErrorMessage(error)}`);
         }
@@ -127,25 +194,28 @@ export default class AgeCryptoPlugin extends Plugin {
   onunload() {}
 
   ensureIdentityConfigured() {
-    if (parseIdentityKeys(this.settings.identityKey).length === 0) {
+    if (parseIdentityKeys(this.getIdentityKey()).length === 0) {
       throw new Error(
-        "Identity key is not set (Settings -> AGE Crypto). Paste an AGE-SECRET-KEY-... value or generate a new identity.",
+        "Identity key is not set on this device (Settings -> AGE Crypto). Paste an AGE-SECRET-KEY-... value or generate a new local identity.",
       );
     }
   }
 
   private ensureRecipientConfigured() {
-    const r = this.settings.recipient.trim();
-    if (!r) {
+    const recipients = parseRecipients(this.settings.recipients);
+    if (recipients.length === 0) {
       throw new Error(
-        "Recipient is not set. Set it in Settings or run: AGE: Derive recipient from identity key.",
+        "Recipients are not set. Add at least one age1... recipient in Settings.",
       );
     }
-    // Minimal validation before handing the value to age-encryption.
-    if (!r.startsWith("age1")) {
-      throw new Error(
-        "Recipient must be an 'age1...' string (not a file path).",
-      );
+
+    for (const recipient of recipients) {
+      // Minimal validation before handing the value to age-encryption.
+      if (!recipient.startsWith("age1")) {
+        throw new Error(
+          "Every recipient must be an 'age1...' string (not a file path).",
+        );
+      }
     }
   }
 
@@ -153,7 +223,9 @@ export default class AgeCryptoPlugin extends Plugin {
     this.ensureRecipientConfigured();
 
     const encrypter = new age.Encrypter();
-    encrypter.addRecipient(this.settings.recipient.trim());
+    for (const recipient of parseRecipients(this.settings.recipients)) {
+      encrypter.addRecipient(recipient);
+    }
 
     const ciphertext = await encrypter.encrypt(plain);
     return age.armor.encode(ciphertext);
@@ -163,7 +235,7 @@ export default class AgeCryptoPlugin extends Plugin {
     this.ensureIdentityConfigured();
 
     const decrypter = new age.Decrypter();
-    for (const identity of parseIdentityKeys(this.settings.identityKey)) {
+    for (const identity of parseIdentityKeys(this.getIdentityKey())) {
       decrypter.addIdentity(identity);
     }
 
@@ -171,7 +243,7 @@ export default class AgeCryptoPlugin extends Plugin {
   }
 
   async deriveRecipientFromIdentity(): Promise<string> {
-    const identity = parseIdentityKeys(this.settings.identityKey)[0];
+    const identity = parseIdentityKeys(this.getIdentityKey())[0];
     if (!identity) {
       throw new Error("Identity key is not set.");
     }
@@ -243,8 +315,24 @@ export default class AgeCryptoPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const data = (await this.loadData()) as Partial<AgeCryptoSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+    const data = (await this.loadData()) as
+      | (Partial<AgeCryptoSettings> & {
+          identityKey?: string;
+          recipient?: string;
+        })
+      | null;
+
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, {
+      recipients: data?.recipients ?? data?.recipient ?? "",
+    });
+
+    if (data?.identityKey && !this.getIdentityKey()) {
+      this.setIdentityKey(data.identityKey);
+    }
+
+    if (data?.recipient || data?.identityKey) {
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {
@@ -265,19 +353,18 @@ class AgeCryptoSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Identity key")
+      .setName("Local identity key")
       .setDesc(
-        "Paste an age identity key (AGE-SECRET-KEY-...) or generate a new one. This private key is stored in Obsidian plugin data.",
+        "Paste an age identity key (AGE-SECRET-KEY-...) or generate a new one for this device. This private key is stored locally and is not synced through Obsidian plugin data.",
       )
       .addTextArea((t) => {
         t.inputEl.rows = 6;
         t.inputEl.cols = 32;
         t
           .setPlaceholder("AGE-SECRET-KEY-1...")
-          .setValue(this.plugin.settings.identityKey)
+          .setValue(this.plugin.getIdentityKey())
           .onChange(async (v) => {
-            this.plugin.settings.identityKey = v.trim();
-            await this.plugin.saveSettings();
+            this.plugin.setIdentityKey(v);
           });
       })
       .addButton((btn) =>
@@ -286,15 +373,18 @@ class AgeCryptoSettingTab extends PluginSettingTab {
             const identity = await age.generateIdentity();
             const recipient = await age.identityToRecipient(identity);
 
-            this.plugin.settings.identityKey = formatGeneratedIdentity(
-              identity,
-              recipient,
+            this.plugin.setIdentityKey(
+              appendGeneratedIdentity(
+                this.plugin.getIdentityKey(),
+                identity,
+                recipient,
+              ),
             );
-            this.plugin.settings.recipient = recipient;
+            this.plugin.addRecipient(recipient);
             await this.plugin.saveSettings();
             this.display();
 
-            new Notice("Generated identity key and recipient.");
+            new Notice("Generated local identity key and added its recipient.");
           } catch (error: unknown) {
             new Notice(`Generate identity failed: ${getErrorMessage(error)}`);
           }
@@ -302,29 +392,37 @@ class AgeCryptoSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Recipient")
-      .setDesc("Recipient public key (age1...). Required for encryption.")
-      .addText((t) =>
-        t
-          .setPlaceholder("age1...")
-          .setValue(this.plugin.settings.recipient)
-          .onChange(async (v) => {
-            this.plugin.settings.recipient = v.trim();
-            await this.plugin.saveSettings();
-          }),
+      .setName("Recipients")
+      .setDesc(
+        "Public recipient keys to encrypt for. Add one age1... value per line; any matching device identity can decrypt.",
       )
+      .addTextArea((t) => {
+        t.inputEl.rows = 6;
+        t.inputEl.cols = 32;
+        t
+          .setPlaceholder("age1...\nage1...")
+          .setValue(this.plugin.settings.recipients)
+          .onChange(async (v) => {
+            this.plugin.settings.recipients = v.trim();
+            await this.plugin.saveSettings();
+          });
+      })
       .addButton((btn) =>
-        btn.setButtonText("Derive").onClick(async () => {
+        btn.setButtonText("Add mine").onClick(async () => {
           try {
             this.plugin.ensureIdentityConfigured();
-            this.plugin.settings.recipient =
-              await this.plugin.deriveRecipientFromIdentity();
+            const recipient = await this.plugin.deriveRecipientFromIdentity();
+            const added = this.plugin.addRecipient(recipient);
             await this.plugin.saveSettings();
             this.display();
 
-            new Notice("Recipient derived from identity key.");
+            new Notice(
+              added
+                ? "Current device recipient added."
+                : "Current device recipient already exists.",
+            );
           } catch (error: unknown) {
-            new Notice(`Derive recipient failed: ${getErrorMessage(error)}`);
+            new Notice(`Add recipient failed: ${getErrorMessage(error)}`);
           }
         }),
       );
